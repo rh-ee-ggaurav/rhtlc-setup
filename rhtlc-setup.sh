@@ -57,6 +57,7 @@ install_rhtlc() {
     fi
     info "Detected macOS — installing via Homebrew..."
     brew tap RedHatTraining/rhtlc
+    brew trust --formula redhattraining/rhtlc/rhtlc  
     brew install rhtlc
   fi
 
