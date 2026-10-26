@@ -12,7 +12,7 @@ Automates the Red Hat Training Lab Companion (RHTLC) setup — installs RHTLC, c
 
 1. Download the script:
    ```bash
-   curl -O https://raw.githubusercontent.com/<your-repo>/main/rhtlc-setup.sh
+   curl -O https://raw.githubusercontent.com/rh-ee-ggaurav/main/rhtlc-setup.sh
    chmod +x rhtlc-setup.sh
    ```
 
