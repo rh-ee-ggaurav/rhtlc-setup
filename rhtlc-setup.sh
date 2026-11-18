@@ -115,7 +115,7 @@ connect_classroom() {
   echo ""
   echo -e "${YELLOW}${BOLD}ACTION REQUIRED:${NC}"
   echo "  1. Open your browser and go to:"
-  echo -e "     ${CYAN}https://rol.redhat.com/rol/app/classes/bbd9ce42-1bb5-403b-a3a0-3f8daf6e09a6${NC}"
+  echo -e "     ${CYAN}URL Given by your instructor for the class${NC}"
   echo -e "  2. Go to the ${BOLD}Labs${NC} tab"
   echo -e "  3. Click ${BOLD}Create Lab${NC} (if not already created)"
   echo -e "  4. Under the RHTLC section, click ${BOLD}COPY RHTLC URL${NC}"
