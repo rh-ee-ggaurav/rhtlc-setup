@@ -3,7 +3,7 @@ set -euo pipefail
 
 # ─────────────────────────────────────────────────────────────
 #  RHTLC One-Click Setup Script
-#  Automates: install → connect → ssh → proxied Firefox
+#  Automates: install → connect → ssh → proxied browser
 # ─────────────────────────────────────────────────────────────
 
 RED='\033[0;31m'
@@ -15,6 +15,7 @@ NC='\033[0m'
 
 SOCKS_PORT=""
 CONN_SKU=""
+PROXY_BYPASS_DOMAINS="*.redhat.com, *.google.com, *.draw.io"
 
 banner() {
   echo ""
@@ -42,7 +43,42 @@ install_rhtlc() {
   step 1 "Installing RHTLC"
 
   if command -v rhtlc &>/dev/null; then
-    info "RHTLC is already installed ($(rhtlc --version 2>/dev/null || echo 'version unknown'))"
+    local current_version
+    current_version=$(rhtlc --version 2>/dev/null || echo 'unknown')
+    info "RHTLC is already installed (${current_version})"
+
+    info "Checking for updates..."
+    local update_available=false
+    if [[ "$OS" == "linux" ]]; then
+      sudo dnf copr enable -y tmichett/RHTLC &>/dev/null || true
+      if sudo dnf check-update rhtlc 2>/dev/null | grep -q '^rhtlc'; then
+        update_available=true
+      fi
+    elif [[ "$OS" == "mac" ]]; then
+      brew update &>/dev/null || true
+      if brew outdated --formula 2>/dev/null | grep -q '^rhtlc'; then
+        update_available=true
+      fi
+    fi
+
+    if [[ "$update_available" == "true" ]]; then
+      echo ""
+      echo -en "${YELLOW}A newer version of RHTLC is available. Do you want to upgrade? (y/n): ${NC}"
+      read -r answer
+      if [[ "$answer" =~ ^[Yy] ]]; then
+        info "Upgrading RHTLC..."
+        if [[ "$OS" == "linux" ]]; then
+          sudo dnf update -y rhtlc
+        elif [[ "$OS" == "mac" ]]; then
+          brew upgrade rhtlc
+        fi
+        info "RHTLC upgraded to $(rhtlc --version 2>/dev/null || echo 'latest')"
+      else
+        info "Skipping upgrade, continuing with ${current_version}"
+      fi
+    else
+      info "RHTLC is already at the latest version"
+    fi
     return
   fi
 
@@ -114,8 +150,8 @@ connect_classroom() {
 
   echo ""
   echo -e "${YELLOW}${BOLD}ACTION REQUIRED:${NC}"
-  echo "  1. Open your browser and go to:"
-  echo -e "     ${CYAN}https://rol.redhat.com/rol/app/classes/bbd9ce42-1bb5-403b-a3a0-3f8daf6e09a6${NC}"
+  echo "  1. Open your browser and go to the classroom URL given by your instructor"
+  echo -e "     ${CYAN}(e.g. https://rol.redhat.com/rol/app/classes/<class-id>)${NC}"
   echo -e "  2. Go to the ${BOLD}Labs${NC} tab"
   echo -e "  3. Click ${BOLD}Create Lab${NC} (if not already created)"
   echo -e "  4. Under the RHTLC section, click ${BOLD}COPY RHTLC URL${NC}"
@@ -153,47 +189,97 @@ connect_classroom() {
   echo -e "  ${BOLD}Connection:${NC} ${CYAN}${CONN_SKU:-unknown}${NC}"
 }
 
-# ── Step 4: Launch proxied Firefox ──────────────────────────
-launch_firefox() {
-  step 4 "Launching Proxied Firefox for OpenShift Console"
+# ── Step 4: Launch proxied browser ─────────────────────────
+launch_browser() {
+  step 4 "Launching Proxied Browser for OpenShift Console"
+
+  echo ""
+  echo -e "${BOLD}Available browsers:${NC}"
+  echo "  1) Firefox"
+  echo "  2) Chrome"
+  echo ""
+  echo -en "${CYAN}Select browser [1-2]: ${NC}"
+  read -r browser_choice
+  case "$browser_choice" in
+    1) _launch_firefox ;;
+    2) _launch_chrome ;;
+    *) err "Invalid choice. Please select 1-2."; exit 1 ;;
+  esac
+}
+
+_launch_firefox() {
+  local port="${SOCKS_PORT:-1080}"
 
   if [[ "$OS" == "mac" ]]; then
-    FIREFOX_BIN="/Applications/Firefox.app/Contents/MacOS/firefox"
+    local bin="/Applications/Firefox.app/Contents/MacOS/firefox"
   else
-    FIREFOX_BIN="firefox"
+    local bin="firefox"
   fi
 
-  if ! command -v "$FIREFOX_BIN" &>/dev/null && [[ ! -x "$FIREFOX_BIN" ]]; then
-    err "Firefox is not installed. Please install Firefox and re-run this script."
+  if ! command -v "$bin" &>/dev/null && [[ ! -x "$bin" ]]; then
+    err "Firefox is not installed. Please install Firefox and re-run."
     exit 1
   fi
 
-  local port="${SOCKS_PORT:-1080}"
+  local profile_dir="$HOME/.rhtlc/firefox-profile"
+  mkdir -p "$profile_dir"
 
-  PROFILE_NAME="rhtlc-proxy"
-  PROFILE_DIR="$HOME/.rhtlc/firefox-profile"
-
-  if [[ ! -d "$PROFILE_DIR" ]]; then
-    info "Creating Firefox profile directory..."
-    mkdir -p "$PROFILE_DIR"
-    info "Profile directory created at $PROFILE_DIR"
-  else
-    info "Firefox profile '${PROFILE_NAME}' already exists"
+  if [[ -f "$profile_dir/prefs.js" ]]; then
+    sed -i.bak '/network\.proxy\./d' "$profile_dir/prefs.js"
+    rm -f "$profile_dir/prefs.js.bak"
   fi
 
-  cat > "$PROFILE_DIR/user.js" <<PREFS
+  cat > "$profile_dir/user.js" <<PREFS
 user_pref("network.proxy.type", 1);
 user_pref("network.proxy.socks", "127.0.0.1");
 user_pref("network.proxy.socks_port", ${port});
 user_pref("network.proxy.socks_version", 5);
 user_pref("network.proxy.socks_remote_dns", true);
+user_pref("network.proxy.no_proxies_on", "${PROXY_BYPASS_DOMAINS}");
 PREFS
 
   info "Starting Firefox with SOCKS proxy on port ${port}..."
-  "$FIREFOX_BIN" -no-remote -profile "$PROFILE_DIR" > /dev/null 2>&1 &
-
+  info "Proxy bypass: ${PROXY_BYPASS_DOMAINS}"
+  "$bin" -no-remote -profile "$profile_dir" > /dev/null 2>&1 &
   sleep 2
   info "Firefox launched!"
+}
+
+_launch_chrome() {
+  local port="${SOCKS_PORT:-1080}"
+
+  if [[ "$OS" == "mac" ]]; then
+    local bin="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+  else
+    local bin=""
+    for candidate in google-chrome google-chrome-stable chromium-browser chromium; do
+      if command -v "$candidate" &>/dev/null; then
+        bin="$candidate"
+        break
+      fi
+    done
+  fi
+
+  if [[ -z "$bin" ]] || { ! command -v "$bin" &>/dev/null && [[ ! -x "$bin" ]]; }; then
+    err "Chrome is not installed. Please install Chrome and re-run."
+    exit 1
+  fi
+
+  local bypass_list
+  bypass_list=$(echo "$PROXY_BYPASS_DOMAINS" | tr ',' ';' | tr -d ' ')
+
+  local user_data_dir="$HOME/.rhtlc/chrome-profile"
+  mkdir -p "$user_data_dir"
+
+  info "Starting Chrome with SOCKS proxy on port ${port}..."
+  info "Proxy bypass: ${PROXY_BYPASS_DOMAINS}"
+  "$bin" \
+    --proxy-server="socks5://127.0.0.1:${port}" \
+    --proxy-bypass-list="$bypass_list" \
+    --user-data-dir="$user_data_dir" \
+    > /dev/null 2>&1 &
+  sleep 2
+  info "Chrome launched!"
 }
 
 # ── Step 5: SSH into workstation ────────────────────────────
@@ -232,8 +318,8 @@ main() {
     connect)
       connect_classroom
       ;;
-    firefox)
-      launch_firefox
+    browser)
+      launch_browser
       ;;
     ssh)
       ssh_workstation
@@ -241,29 +327,29 @@ main() {
     full)
       install_rhtlc
       connect_classroom
-      launch_firefox
+      launch_browser
       ssh_workstation
       ;;
     daily)
       step 1 "Daily Lab Access"
-      info "Starting tunnel and Firefox..."
+      info "Starting tunnel and browser..."
       manage_connections
-      launch_firefox
+      launch_browser
       ssh_workstation
       ;;
     cleanup)
       manage_connections
       ;;
     *)
-      echo "Usage: $0 {full|daily|install|connect|cleanup|firefox|ssh}"
+      echo "Usage: $0 {full|daily|install|connect|cleanup|browser|ssh}"
       echo ""
-      echo "  full    — First-time setup: install + connect + firefox + ssh"
-      echo "  daily   — Daily use: manage connections + firefox + ssh"
-      echo "  install — Only install RHTLC"
-      echo "  connect — Only connect to classroom (paste URL)"
-      echo "  cleanup — Manage existing connections"
-      echo "  firefox — Only launch proxied Firefox"
-      echo "  ssh     — Only SSH into workstation"
+      echo "  full      — First-time setup: install + connect + browser + ssh"
+      echo "  daily     — Daily use: manage connections + browser + ssh"
+      echo "  install   — Only install RHTLC"
+      echo "  connect   — Only connect to classroom (paste URL)"
+      echo "  cleanup   — Manage existing connections"
+      echo "  browser   — Only launch proxied browser (Firefox/Chrome)"
+      echo "  ssh       — Only SSH into workstation"
       exit 1
       ;;
   esac
