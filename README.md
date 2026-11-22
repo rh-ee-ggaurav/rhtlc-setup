@@ -24,7 +24,7 @@ Automates the Red Hat Training Lab Companion (RHTLC) setup — installs RHTLC (a
 3. When prompted, go to the classroom URL given by your instructor (e.g. `https://rol.redhat.com/rol/app/classes/<class-id>`), open the **Labs** tab, click **Create Lab**, then **COPY RHTLC URL** and paste it into the terminal.
 
 4. Select your preferred browser (Firefox or Chrome). A new browser window will open with the SOCKS proxy configured and the following domains excluded from the proxy:
-   - `*.redhat.com` (for SSO)
+   - `*.redhat.com` 
    - `*.google.com`
    - `*.draw.io`
 
